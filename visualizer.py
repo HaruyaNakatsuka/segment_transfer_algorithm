@@ -5,11 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import shutil
-import json
-import math
 import logging
 
-import utils
 from model import CollaborativeState
 
 logger = logging.getLogger(__name__)
@@ -19,26 +16,16 @@ plt.rcParams['axes.unicode_minus'] = False
 plt.rcParams['font.monospace'] = ['MS Gothic']
 
 
-def _plot_routes(
+def plot_routes(
     all_LSP_state: CollaborativeState,
     phase: str,                      # "init" / "segment" / "ORTools" / "gat"
     output_file_index: int,                   # PNGファイル名用：呼び出し順の連番（衝突防止）
-    round_number: int | None = None,   # 図中の「○回目」表示用（outer_iter や gat_iter）
+    round_number: int | None = None,
     output_dir: str = "figures",
     elapsed_time: float | None = None,
 ):
     """
     各車両の経路を描画し保存する関数
-
-    仕様（関数1に合わせた点）：
-      - タイトル表記を関数1の形式に寄せる（instance_name はタイトルに入れない）
-      - 2社：等距離線（従来の1本）
-      - 3社以上：ボロノイ領域分割境界（最近傍デポが変わる境界）を描画
-      - 会社番号は 1 始まり
-      - 色は会社indexに対応（tab:blue, tab:green, ...）
-      - グリッド線は表示（plt.grid(True)）
-      - 軸ラベルは関数1同様、明示しない（既定のまま）
-      - フッターの文面・インデントを関数1の形式に寄せる
     """
 
     # =======================================================
@@ -71,7 +58,7 @@ def _plot_routes(
     os.makedirs(instance_folder, exist_ok=True)
 
     # =======================================================
-    # 3) 図のセットアップ（タイトルを関数1の書式に寄せる）
+    # 3) 図のセットアップ
     # =======================================================
     fig = plt.figure(figsize=(8, 8))
 
@@ -85,7 +72,7 @@ def _plot_routes(
         plt.title(f"ラウンド{round_number}：社内GATによる個別最適化")
 
     # =======================================================
-    # 4) 経路描画（色・ラベルを関数1に合わせる）
+    # 4) 経路描画
     # =======================================================
     vehicle_index = 0
     for lsp_index, num_vehicles in enumerate(vehicle_num_list):
@@ -111,9 +98,7 @@ def _plot_routes(
             plt.scatter(xs, ys, c=color, s=15)
 
     # =======================================================
-    # 5) 境界線（関数1と同じ仕様）
-    #    - 2社: 等距離線（1本）
-    #    - 3社以上: ボロノイ境界（最近傍デポが変わるところ）
+    # 5) ボロノイ領域分割線の描画
     # =======================================================
     if len(depot_id_list) > 1:
         depot_coords = np.array([id_to_coord[int(d)] for d in depot_id_list])
@@ -132,13 +117,13 @@ def _plot_routes(
             distances[k] = np.sqrt((X - dx) ** 2 + (Y - dy) ** 2)
 
         if len(depot_id_list) == 2:
-            # 2社：等距離線（関数1と同じ）
+            # 2社：等距離線
             plt.contour(
                 X, Y, distances[0] - distances[1],
                 levels=[0], colors="gray", linestyles="--", linewidths=1
             )
         else:
-            # 3社以上：ボロノイ境界（関数1と同じ：argmin→境界抽出）
+            # 3社以上：ボロノイ境界線
             region = np.argmin(distances, axis=0)  # (H, W) int
 
             boundary = np.zeros_like(region, dtype=bool)
@@ -150,15 +135,9 @@ def _plot_routes(
                 levels=[0.5], colors="gray", linestyles="--", linewidths=1
             )
 
-    # =======================================================
-    # 6) 仕上げ（グリッド、凡例、レイアウト）
-    #    ※関数1に合わせて tight_layout は使わない（フッターと相性が悪い）
-    # =======================================================
-    plt.legend()
-    plt.grid(False)
 
     # =======================================================
-    # 7) フッター（関数1の表示形式に寄せる）
+    # 6) フッター
     # =======================================================
     curr_company = [c.current_total_route_length for c in all_LSP_state.companies]
     curr_total = all_LSP_state.current_total_route_length
@@ -206,9 +185,13 @@ def _plot_routes(
         )
 
     # =======================================================
-    # 8) 保存（plot_seq をファイル名に使うのは元のまま）
+    # 7) 保存
     # =======================================================
     save_path = os.path.join(instance_folder, f"routes_iter_{output_file_index:04d}.png")
+    plt.legend()
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.grid(False)
     fig.savefig(save_path)
     plt.close(fig)
     logger.info(f"✅図を保存しました: {save_path}")
@@ -218,26 +201,12 @@ def _plot_routes(
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # === フッター・タイトル非表示用（修論付録用） ===
-def plot_routes(
+def _plot_routes(
     all_LSP_state: CollaborativeState,
     phase: str,                      # "init" / "segment" / "ORTools" / "gat"
     output_file_index: int,          # PNGファイル名用：呼び出し順の連番（衝突防止）
-    round_number: int | None = None, # 図中の「○回目」表示用（outer_iter や gat_iter）
+    round_number: int | None = None,
     output_dir: str = "figures",
     elapsed_time: float | None = None,
 ):
@@ -248,10 +217,6 @@ def plot_routes(
       - タイトル非表示
       - フッター非表示
       - グラフ内グリッド線表示（plt.grid(True)）
-      - 2社：等距離線（1本）
-      - 3社以上：ボロノイ領域分割境界（最近傍デポが変わる境界）を描画
-      - 会社番号は 1 始まり
-      - 色は会社indexに対応（tab:blue, tab:green, ...）
     """
 
     # =======================================================
@@ -267,7 +232,7 @@ def plot_routes(
     colors = ["tab:blue", "tab:green", "tab:red", "tab:orange", "tab:purple", "tab:brown"]
 
     # =======================================================
-    # 1) 出力フォルダ準備（index==0 のときだけ掃除）
+    # 1) 出力フォルダ準備
     # =======================================================
     instance_folder = os.path.join(output_dir, instance_name)
     if output_file_index == 0 and os.path.isdir(instance_folder):
@@ -275,12 +240,12 @@ def plot_routes(
     os.makedirs(instance_folder, exist_ok=True)
 
     # =======================================================
-    # 2) 図のセットアップ（タイトルは表示しない）
+    # 2) 図のセットアップ
     # =======================================================
     fig = plt.figure(figsize=(8, 8))
 
     # =======================================================
-    # 3) 経路描画（色・ラベル）
+    # 3) 経路描画
     # =======================================================
     vehicle_index = 0
     for lsp_index, num_vehicles in enumerate(vehicle_num_list):
@@ -306,7 +271,7 @@ def plot_routes(
             plt.scatter(xs, ys, c=color, s=15)
 
     # =======================================================
-    # 4) 境界線（2社: 等距離線 / 3社以上: ボロノイ境界）
+    # 4) ボロノイ領域分割線の描画
     # =======================================================
     if len(depot_id_list) > 1:
         depot_coords = np.array([id_to_coord[int(d)] for d in depot_id_list])

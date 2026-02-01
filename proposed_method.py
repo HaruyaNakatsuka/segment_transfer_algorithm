@@ -943,7 +943,6 @@ def optimize_individually_by_ORTools(
 def optimize_individually_by_GAT(
     all_LSP_state,
     exact_pd_pair_limit,
-    warmstart_2gat: bool = True,  
     debug_2gat: bool = False
 ):
     """
@@ -1061,7 +1060,7 @@ def optimize_individually_by_GAT(
                         use_capacity=True,
                         use_time=True,
                         use_pickup_delivery=True,
-                        Warm_Start=warmstart_2gat,
+                        Warm_Start=True,
                     )
 
                 # 処理2：解なしは候補追加せず次へ

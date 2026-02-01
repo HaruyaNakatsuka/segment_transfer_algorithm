@@ -256,7 +256,7 @@ def build_state_for_case(file_paths: List[str], offsets: List[Tuple[float, float
 def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair_limit: int) -> None:
     # ---- 視覚化ツール連番カウンタ ----
     plot_sequence = 0
-    def save_figure(phase: str, round_number: int | None, elapsed_time: float | None = None) -> None:
+    def save_figure(phase: str, round_number: int | None) -> None:
         nonlocal plot_sequence
         if not ENABLE_PLOT:
             return
@@ -265,7 +265,7 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
             phase=phase,                # "init" / "segment" / "ORTools" / "gat"
             output_file_index=plot_sequence,          # ファイル名用の通し番号
             round_number=round_number,      # 図中表示用（例：outer_iterやgat_iter）
-            elapsed_time=elapsed_time,
+            elapsed_time=time.time() - start_time
         )
         plot_sequence += 1
     
@@ -392,10 +392,8 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
                     exact_pd_pair_limit=exact_pd_pair_limit,
                     debug_2gat=DEBUG_2GAT
                 )
-                
-                elapsed = time.time() - start_time
                 utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：社内GAT最適化{GAT_iteration_index}回目が終了しました")
-                save_figure(phase="gat", round_number=GAT_iteration_index, elapsed_time=elapsed)
+                save_figure(phase="gat", round_number=GAT_iteration_index)
                 save_json_data()
 
     return

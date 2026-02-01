@@ -10,9 +10,6 @@ from typing import List, Tuple
 from model import CompanyState, CollaborativeState
 from parser import parse_lilim200
 import proposed_method
-from total_routes_generator import initialize_individual_vrps
-from voronoi_allocator import optimize_by_partial_route_reassignment
-from gat import optimize_intra_company_by_exact_2vehicle_gat
 from visualizer import plot_routes
 from web_exporter import export_vrp_state, generate_index_json
 import utils
@@ -20,8 +17,9 @@ import utils
 
 # ======================== 実行モデル・環境設定（フラグ）一覧 ==================================
 # --- ビジュアライザ有効化 ---
-ENABLE_EXPORT = os.getenv("VRP_ENABLE_EXPORT", "1") == "1"  # JSON出力(export_vrp_state)
-ENABLE_PLOT = os.getenv("VRP_ENABLE_PLOT", "1") == "1"  # PNG出力(plot_routes)
+ENABLE_PLOT = True  # PNG出力(plot_routes)
+ENABLE_EXPORT = True  # JSON出力(export_vrp_state)
+
 
 # --- optimize_by_partial_route_reassignment 関数の設定 ---
 ENABLE_STOCHASTIC_IMP: bool = False  # 移管による改善量を確率変数化する/しない
@@ -33,8 +31,7 @@ FEASIBILITY_CHECK = False  # feasibility チェック有効/無効
 NUM_REASSIGNMENT_LIMIT = 10
 
 # --- optimize_intra_company_by_exact_2vehicle_gat 関数の設定 ---
-EXE_GAT = False  # Falseなら社内2GATはスキップされる
-WARMSTART_2GAT = True  # Warm start/cold startでソルバー（ORTools）を実行
+OPTIMIZE_BY_GAT = False  # Trueなら社内最適化にGATが使用される
 DEBUG_2GAT = False
 # ===========================================================================================
 
@@ -242,6 +239,11 @@ def build_state_for_case(file_paths: List[str], offsets: List[Tuple[float, float
     )
 
 
+
+
+
+
+
 def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair_limit: int) -> None:
     # ---- 視覚化ツール連番カウンタ ----
     plot_sequence = 0
@@ -279,9 +281,6 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
     
     
     
-    
-    
-    
     # =================================
     # Step0：乱数生成
     # =================================
@@ -296,7 +295,6 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
     # =================================
     # Step1：初期解生成
     # =================================
-    #initialize_individual_vrps(all_LSP_state)
     proposed_method.initial_routes_generator(all_LSP_state)
 
     print("\n>>> 初期解が生成されました")
@@ -310,38 +308,14 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
 
 
 
-
-
-
-
-
-
-
-
     outer_iteration_index = 0
     while True:
         outer_iteration_index += 1
         print(f"\n==================== ループ {outer_iteration_index}回目 ====================")
 
-        # 呼び出し前：各社 current を保存（決定的モードの終了判定に使う）
-        before_cost_per_company = [
-            int(comp.current_total_route_length)
-            for comp in all_LSP_state.companies
-        ]
-
         # ==========================================
-        # 部分経路移管による最適化
+        # STEP2：セグメント移管による全体最適化
         # ==========================================
-        """
-        all_LSP_state = optimize_by_partial_route_reassignment(
-            all_LSP_state,
-            enable_stochastic_imp=ENABLE_STOCHASTIC_IMP,
-            stoch_net_imp_stddev=STOCH_NET_IMP_STDDEV,
-            rng=stoch_rng,
-            warmstart_proc3=WARMSTART_PROC3,
-            check_feasibility=REASSIGNMENT_FEASIBILITY_CHECK,
-        )
-        """
         all_LSP_state = proposed_method.optimize_collectively_by_segment_transfar(
             all_LSP_state,
             enable_stochastic_imp=ENABLE_STOCHASTIC_IMP,
@@ -349,17 +323,10 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
             rng=stoch_rng,
             check_feasibility=FEASIBILITY_CHECK,
         )
-        utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：セグメント移管による全体最善が終了しました")
+        utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：セグメント移管による全体改善が終了しました")
 
-        # 呼び出し後：各社 current を保存（決定的モードの終了判定に使う）
-        after_cost_per_company = [
-            int(comp.current_total_route_length)
-            for comp in all_LSP_state.companies
-        ]
 
-        # ==========================
-        # 終了判定
-        # ==========================
+        # === 終了判定 ===
         if ENABLE_STOCHASTIC_IMP:
             # --- 条件1：反復上限 ---
             if outer_iteration_index >= NUM_REASSIGNMENT_LIMIT:
@@ -382,52 +349,45 @@ def run_case(all_LSP_state: CollaborativeState, start_time: float, exact_pd_pair
                 break
 
         else:
-            # --- 各社の経路長に変化なし ---
-            if after_cost_per_company == before_cost_per_company:
+            # --- 各社の経路長に変化なし（previous と current が一致） ---
+            if all(
+                int(comp.current_total_route_length) == int(comp.previous_total_route_length)
+                for comp in all_LSP_state.companies
+            ):
                 break
 
-        save_json_data()
         save_figure(phase="segment", round_number=outer_iteration_index)
-        
-        
-        
-        all_LSP_state=proposed_method.optimize_individually_by_ORTools(all_LSP_state, check_feasibility = FEASIBILITY_CHECK)
-        utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：社内最適化（ORTools）が終了しました")
         save_json_data()
-        save_figure(phase="ORTools", round_number=outer_iteration_index)
-        
-        
         
         
         # ==========================================
-        # 社内GAT（社内最適化）を「改善が無くなるまで」反復
+        # STEP3：社内最適化
         # ==========================================
-        if EXE_GAT:
+        if not OPTIMIZE_BY_GAT:
+            # --- ORToolsによる社内一括最適化 ---
+            all_LSP_state=proposed_method.optimize_individually_by_ORTools(all_LSP_state, FEASIBILITY_CHECK)
+            utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：社内最適化（ORTools）が終了しました")
+            save_figure(phase="ORTools", round_number=outer_iteration_index)
+            save_json_data()
+        else:
+            # --- GATアルゴリズムによる社内最適化 ---
             print("")
             print(">>> 社内GATによる最適化")
 
             GAT_iteration_index = 0
             while all_LSP_state.current_total_route_length != all_LSP_state.previous_total_route_length:
                 GAT_iteration_index += 1
-                """
-                all_LSP_state = optimize_intra_company_by_exact_2vehicle_gat(
-                    all_LSP_state,
-                    exact_pd_pair_limit=exact_pd_pair_limit,
-                    warmstart_2gat=WARMSTART_2GAT,
-                    debug_2gat=DEBUG_2GAT,
-                )
-                """
+                
                 all_LSP_state = proposed_method.optimize_individually_by_GAT(
                     all_LSP_state,
                     exact_pd_pair_limit=exact_pd_pair_limit,
-                    warmstart_2gat=WARMSTART_2GAT,
-                    debug_2gat=DEBUG_2GAT,
+                    debug_2gat=DEBUG_2GAT
                 )
                 
                 elapsed = time.time() - start_time
                 utils.print_cost_table(all_LSP_state, title=f">>> ラウンド{outer_iteration_index}：社内GAT最適化{GAT_iteration_index}回目が終了しました")
-                save_json_data()
                 save_figure(phase="gat", round_number=GAT_iteration_index, elapsed_time=elapsed)
+                save_json_data()
 
     return
 
@@ -442,13 +402,13 @@ def main() -> None:
     for case_index, (file_paths, offsets, exact_pd_pair_limit) in enumerate(test_cases, 1):
         # 各インスタンスに対して実行時間を計測
         start_time = time.time()
-        # タイトル表示
+        # コンソールにタイトル表示
         instance_name = print_testcase_title(case_index, file_paths, offsets, exact_pd_pair_limit)
         # CollaborativeState 作成
         state = build_state_for_case(file_paths, offsets, case_index, instance_name)
         
         
-        # アルゴリズム本体
+        # === アルゴリズム本体 ===
         run_case(state, start_time, exact_pd_pair_limit)
         
         # 実行時間計測

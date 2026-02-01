@@ -191,7 +191,7 @@ def plot_routes(
     plt.legend()
     plt.xlabel("x")
     plt.ylabel("y")
-    plt.grid(False)
+    plt.grid(True)
     fig.savefig(save_path)
     plt.close(fig)
     logger.info(f"✅図を保存しました: {save_path}")
